@@ -89,4 +89,19 @@ class TodoRepository {
     }
     await batch.commit(noResult: true);
   }
+
+  Future<void> reassignTheme(String fromId, String toId) async {
+    if (!TodoDatabase.isSupported || fromId == toId) return;
+    final db = await TodoDatabase.instance.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.update(
+      'todos',
+      {
+        'theme_id': toId,
+        'updated_at': now,
+      },
+      where: 'theme_id = ?',
+      whereArgs: [fromId],
+    );
+  }
 }

@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
@@ -565,20 +568,36 @@ class _TodoHomePageState extends State<TodoHomePage> {
     );
   }
 
-  static const List<int> _themeColorOptions = [
-    0xFF1E88E5,
-    0xFF43A047,
-    0xFF8E24AA,
-    0xFFF4511E,
-    0xFF00897B,
-    0xFF5E35B1,
-    0xFF546E7A,
-    0xFFFDD835,
+  static const int _defaultGroupColor = 0xFF1E88E5;
+  static const List<int> _baseGroupColors = [
+    0xFFE53935, // Red
+    0xFFF57C00, // Orange
+    0xFFFDD835, // Yellow
+    0xFF43A047, // Green
+    0xFF1E88E5, // Blue
+    0xFF3949AB, // Indigo
+    0xFF8E24AA, // Purple
+    0xFF6D4C41, // Brown
   ];
 
-  Future<TodoTheme?> _showCreateThemeDialog() async {
-    final nameController = TextEditingController();
-    int selectedColor = _themeColorOptions.first;
+  Future<TodoTheme?> _showGroupEditorDialog({TodoTheme? existing}) async {
+    final nameController = TextEditingController(text: existing?.name ?? '');
+    final initialColorValue = existing?.colorValue ?? _defaultGroupColor;
+    var red = (initialColorValue >> 16) & 0xFF;
+    var green = (initialColorValue >> 8) & 0xFF;
+    var blue = initialColorValue & 0xFF;
+    int? selectedPreset =
+        _baseGroupColors.contains(initialColorValue) ? initialColorValue : null;
+    Color? initialCustomColor =
+        selectedPreset == null ? Color(initialColorValue) : null;
+    final customSlotColors = List<Color?>.filled(2, null, growable: false);
+    if (initialCustomColor != null) {
+      customSlotColors[0] = initialCustomColor;
+    }
+    int? customSlotIndex =
+        initialCustomColor != null ? 0 : null;
+    var isCustomSelected = customSlotIndex != null;
+    var showCustomPicker = false;
     String? errorText;
 
     return showDialog<TodoTheme>(
@@ -586,66 +605,235 @@ class _TodoHomePageState extends State<TodoHomePage> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final currentColorValue =
+                (0xFF << 24) | (red << 16) | (green << 8) | blue;
+            final previewColor = Color(currentColorValue);
             return AlertDialog(
-              title: const Text('새 테마 만들기'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: nameController,
-                    decoration: InputDecoration(
-                      labelText: '테마 이름',
-                      errorText: errorText,
+              title: Text(existing == null ? '새 그룹 만들기' : '그룹 수정하기'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: InputDecoration(
+                        labelText: '그룹 이름',
+                        errorText: errorText,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '색상 선택',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: _themeColorOptions.map((colorValue) {
-                      final color = Color(colorValue);
-                      final isSelected = colorValue == selectedColor;
-                      return GestureDetector(
-                        onTap: () {
-                          setDialogState(() {
-                            selectedColor = colorValue;
-                          });
-                        },
-                        child: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            border: isSelected
-                                ? Border.all(color: Colors.white, width: 3)
-                                : Border.all(color: Colors.black.withValues(alpha: 0.1)),
-                            boxShadow: isSelected
-                                ? [
-                                    BoxShadow(
-                                      color: color.withValues(alpha: 0.4),
-                                      blurRadius: 8,
-                                      spreadRadius: 1,
-                                    ),
-                                  ]
-                                : const [],
+                    const SizedBox(height: 16),
+                    Text(
+                      '색상 선택',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
                           ),
-                          child: isSelected
-                              ? const Icon(Icons.check, color: Colors.white)
-                              : null,
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                  Builder(
+                    builder: (context) {
+                      Widget paletteCircle({
+                        required bool selected,
+                        required VoidCallback onTap,
+                        Color? color,
+                        bool isPlus = false,
+                      }) {
+                        final scheme = Theme.of(context).colorScheme;
+                        final iconColor = color != null
+                            ? (ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+                                ? Colors.white
+                                : Colors.black)
+                            : scheme.onSurface;
+                        final borderColor = color ??
+                            (selected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.1));
+                        final borderWidth = color != null
+                            ? 2.0
+                            : (selected ? 2.0 : 1.2);
+                        return SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              onTap();
+                            },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: isPlus
+                                    ? (color ??
+                                        (selected
+                                            ? scheme.primary.withValues(alpha: 0.08)
+                                            : Colors.transparent))
+                                    : color,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: borderColor,
+                                  width: borderWidth,
+                                ),
+                                boxShadow: selected && !isPlus && color != null
+                                    ? [
+                                        BoxShadow(
+                                          color: color.withValues(alpha: 0.35),
+                                          blurRadius: 8,
+                                          spreadRadius: 1,
+                                        ),
+                                      ]
+                                    : const [],
+                              ),
+                              child: isPlus
+                                  ? Icon(
+                                      Icons.add,
+                                      color: iconColor,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        );
+                      }
+
+                      List<Widget> buildRow(List<_PaletteEntry> entries) {
+                        return [
+                          for (var i = 0; i < entries.length; i++) ...[
+                            paletteCircle(
+                              selected: entries[i].selected,
+                              onTap: entries[i].onTap,
+                              color: entries[i].color,
+                              isPlus: entries[i].isPlus,
+                            ),
+                            if (i != entries.length - 1) const SizedBox(width: 12),
+                          ]
+                        ];
+                      }
+
+                      final topRow = <_PaletteEntry>[];
+                      final bottomRow = <_PaletteEntry>[];
+
+                      var plusCounter = 0;
+
+                      for (var i = 0; i < 5; i++) {
+                        if (i < _baseGroupColors.length) {
+                          final colorValue = _baseGroupColors[i];
+                          topRow.add(_PaletteEntry(
+                            color: Color(colorValue),
+                            selected: selectedPreset == colorValue,
+                            onTap: () {
+                              setDialogState(() {
+                                selectedPreset = colorValue;
+                                red = (colorValue >> 16) & 0xFF;
+                                green = (colorValue >> 8) & 0xFF;
+                                blue = colorValue & 0xFF;
+                                isCustomSelected = false;
+                                showCustomPicker = false;
+                                customSlotIndex = null;
+                              });
+                            },
+                          ));
+                        } else {
+                          final currentPlusIndex = plusCounter++;
+                          topRow.add(_PaletteEntry.plus(
+                            color: customSlotColors[currentPlusIndex],
+                            selected: customSlotIndex == currentPlusIndex && isCustomSelected,
+                            onTap: () {
+                              setDialogState(() {
+                                showCustomPicker = true;
+                                selectedPreset = null;
+                                isCustomSelected = true;
+                                customSlotIndex = currentPlusIndex;
+                                final existing = customSlotColors[currentPlusIndex];
+                                if (existing != null) {
+                                  red = existing.red;
+                                  green = existing.green;
+                                  blue = existing.blue;
+                                }
+                              });
+                            },
+                          ));
+                        }
+                      }
+
+                      for (var i = 5; i < 10; i++) {
+                        if (i < _baseGroupColors.length) {
+                          final colorValue = _baseGroupColors[i];
+                          bottomRow.add(_PaletteEntry(
+                            color: Color(colorValue),
+                            selected: selectedPreset == colorValue,
+                            onTap: () {
+                              setDialogState(() {
+                                selectedPreset = colorValue;
+                                red = (colorValue >> 16) & 0xFF;
+                                green = (colorValue >> 8) & 0xFF;
+                                blue = colorValue & 0xFF;
+                                isCustomSelected = false;
+                                showCustomPicker = false;
+                                customSlotIndex = null;
+                              });
+                            },
+                          ));
+                        } else {
+                          final currentPlusIndex = plusCounter++;
+                          bottomRow.add(_PaletteEntry.plus(
+                            color: customSlotColors[currentPlusIndex],
+                            selected: customSlotIndex == currentPlusIndex && isCustomSelected,
+                            onTap: () {
+                              setDialogState(() {
+                                showCustomPicker = true;
+                                selectedPreset = null;
+                                isCustomSelected = true;
+                                customSlotIndex = currentPlusIndex;
+                                final existing = customSlotColors[currentPlusIndex];
+                                if (existing != null) {
+                                  red = existing.red;
+                                  green = existing.green;
+                                  blue = existing.blue;
+                                }
+                              });
+                            },
+                          ));
+                        }
+                      }
+
+                      return Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: buildRow(topRow),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: buildRow(bottomRow),
+                          ),
+                        ],
                       );
-                    }).toList(),
+                    },
                   ),
-                ],
+                  if (showCustomPicker) ...[
+                    const SizedBox(height: 16),
+                      ColorPicker(
+                      pickerColor: previewColor,
+                      onColorChanged: (color) {
+                        setDialogState(() {
+                          red = color.red;
+                          green = color.green;
+                          blue = color.blue;
+                          selectedPreset = null;
+                          customSlotIndex ??= 0;
+                          customSlotColors[customSlotIndex!] = color;
+                          isCustomSelected = true;
+                          showCustomPicker = true;
+                        });
+                      },
+                      enableAlpha: false,
+                      displayThumbColor: true,
+                      portraitOnly: true,
+                      labelTypes: const [],
+                      paletteType: PaletteType.hueWheel,
+                      colorPickerWidth: 360,
+                      pickerAreaHeightPercent: 0.5,
+                    ),
+                  ],
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -657,16 +845,21 @@ class _TodoHomePageState extends State<TodoHomePage> {
                     final name = nameController.text.trim();
                     if (name.isEmpty) {
                       setDialogState(() {
-                        errorText = '테마 이름을 입력해주세요.';
+                        errorText = '그룹 이름을 입력해주세요.';
                       });
                       return;
                     }
-                    final created = await TodoThemeRepository.instance
-                        .createTheme(name: name, colorValue: selectedColor);
+                    final colorValue =
+                        (0xFF << 24) | (red << 16) | (green << 8) | blue;
+                    final result = existing == null
+                        ? await TodoThemeRepository.instance
+                            .createTheme(name: name, colorValue: colorValue)
+                        : await TodoThemeRepository.instance
+                            .updateTheme(id: existing.id, name: name, colorValue: colorValue);
                     if (!context.mounted) return;
-                    Navigator.of(dialogContext).pop(created);
+                    Navigator.of(dialogContext).pop(result);
                   },
-                  child: const Text('추가'),
+                  child: Text(existing == null ? '추가' : '저장'),
                 ),
               ],
             );
@@ -676,6 +869,238 @@ class _TodoHomePageState extends State<TodoHomePage> {
     );
   }
 
+  void _upsertGroupInState(TodoTheme group) {
+    setState(() {
+      final updated = List<TodoTheme>.from(_themes);
+      final existingIndex = updated.indexWhere((element) => element.id == group.id);
+      if (existingIndex >= 0) {
+        updated[existingIndex] = group;
+      } else {
+        updated.insert(0, group);
+      }
+      _themes = updated;
+      _themeMap = {for (final theme in _themes) theme.id: theme};
+    });
+  }
+
+  void _reassignTodosInMemory(String fromId, String toId) {
+    final updated = <DateTime, List<TodoItem>>{};
+    for (final entry in _todos.entries) {
+      updated[entry.key] = [
+        for (final item in entry.value)
+          item.themeId == fromId ? item.copyWith(themeId: toId) : item,
+      ];
+    }
+    _todos
+      ..clear()
+      ..addAll(updated);
+  }
+
+  Future<bool> _deleteGroup(TodoTheme group, {required String fallbackId}) async {
+    if (group.id == fallbackId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('기본 그룹은 삭제할 수 없습니다.')),
+      );
+      return false;
+    }
+
+    if (_useDatabase) {
+      await TodoThemeRepository.instance.deleteTheme(group.id);
+      await TodoRepository.instance.reassignTheme(group.id, fallbackId);
+    } else {
+      await TodoThemeRepository.instance.deleteTheme(group.id);
+    }
+
+    if (!mounted) return false;
+
+    setState(() {
+      _reassignTodosInMemory(group.id, fallbackId);
+      _themes = _themes.where((theme) => theme.id != group.id).toList();
+      _themeMap = {for (final theme in _themes) theme.id: theme};
+    });
+
+    return true;
+  }
+
+  Future<String?> _showGroupManager(String activeGroupId) async {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        var groups = List<TodoTheme>.from(_themes);
+        var selectedId = activeGroupId;
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+            final maxHeight =
+                math.min(MediaQuery.of(context).size.height * 0.7, 120 + groups.length * 72.0);
+
+            return Padding(
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 24 + bottomInset),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '그룹 관리',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          tooltip: '닫기',
+                          onPressed: () => Navigator.of(sheetContext).pop(selectedId),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '할 일을 묶을 그룹을 만들고 수정하거나 삭제할 수 있습니다.',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      height: maxHeight,
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: groups.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final group = groups[index];
+                          final isDefault = group.id == _defaultThemeId;
+                          final isSelected = group.id == selectedId;
+                          return ListTile(
+                            onTap: () {
+                              selectedId = group.id;
+                              Navigator.of(sheetContext).pop(group.id);
+                            },
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: BorderSide(
+                                color: isSelected
+                                    ? group.color.withValues(alpha: 0.6)
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .outline
+                                        .withValues(alpha: 0.2),
+                              ),
+                            ),
+                            tileColor: isSelected
+                                ? group.color.withValues(alpha: 0.2)
+                                : Theme.of(context).colorScheme.surface,
+                            leading: CircleAvatar(
+                              backgroundColor: group.color,
+                              foregroundColor: Colors.white,
+                              child: Text(
+                                group.name.trim().isEmpty
+                                    ? 'G'
+                                    : group.name.trim().substring(0, 1).toUpperCase(),
+                              ),
+                            ),
+                            title: Text(
+                              group.name,
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                            subtitle: isDefault
+                                ? const Text('기본 그룹')
+                                : null,
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: '그룹 수정',
+                                  onPressed: () async {
+                                    final updated = await _showGroupEditorDialog(existing: group);
+                                    if (updated == null) return;
+                                    _upsertGroupInState(updated);
+                                    setSheetState(() {
+                                      groups = List<TodoTheme>.from(_themes);
+                                    });
+                                  },
+                                  icon: const Icon(Icons.edit_outlined),
+                                ),
+                                IconButton(
+                                  tooltip: isDefault ? '기본 그룹은 삭제할 수 없습니다.' : '그룹 삭제',
+                                  onPressed: isDefault
+                                      ? null
+                                      : () async {
+                                          final confirm = await showDialog<bool>(
+                                            context: context,
+                                            builder: (dialogContext) {
+                                              return AlertDialog(
+                                                title: const Text('그룹 삭제'),
+                                                content: Text(
+                                                    '\'${group.name}\' 그룹을 삭제하면 해당 그룹의 할 일은 기본 그룹으로 이동합니다. 계속할까요?'),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                                                    child: const Text('취소'),
+                                                  ),
+                                                  FilledButton(
+                                                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                                                    child: const Text('삭제'),
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          );
+                                          if (confirm != true) return;
+                                          final deleted =
+                                              await _deleteGroup(group, fallbackId: _defaultThemeId);
+                                          if (!deleted) return;
+                                          setSheetState(() {
+                                            groups = List<TodoTheme>.from(_themes);
+                                            if (!groups.any((item) => item.id == selectedId)) {
+                                              selectedId = _defaultThemeId;
+                                            }
+                                          });
+                                        },
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        icon: const Icon(Icons.add),
+                        label: const Text('새 그룹 추가'),
+                        onPressed: () async {
+                          final created = await _showGroupEditorDialog();
+                          if (created == null) return;
+                          _upsertGroupInState(created);
+                          setSheetState(() {
+                            groups = List<TodoTheme>.from(_themes);
+                            selectedId = created.id;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
   Future<void> _createTodo() async {
     if (_isLoading) return;
     final result = await _showTodoForm(initialDate: _selectedDay);
@@ -963,6 +1388,10 @@ class _TodoHomePageState extends State<TodoHomePage> {
             final titleValid = titleController.text.trim().isNotEmpty;
             final canToggleNotification = hasTime();
 
+            if (!_themeMap.containsKey(selectedThemeId) && _themes.isNotEmpty) {
+              selectedThemeId = _themes.first.id;
+            }
+
             String notificationSubtitle() {
               if (!canToggleNotification) {
                 return '시간을 입력하면 알림을 조절할 수 있습니다.';
@@ -1012,7 +1441,7 @@ class _TodoHomePageState extends State<TodoHomePage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      '테마',
+                      '그룹',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -1056,22 +1485,15 @@ class _TodoHomePageState extends State<TodoHomePage> {
                       alignment: Alignment.centerRight,
                       child: TextButton.icon(
                         onPressed: () async {
-                          final created = await _showCreateThemeDialog();
-                          if (created != null) {
-                            setState(() {
-                              _themes = [created, ..._themes
-                                  .where((theme) => theme.id != created.id)];
-                              _themeMap = {
-                                for (final theme in _themes) theme.id: theme
-                              };
-                            });
-                            setModalState(() {
-                              selectedThemeId = created.id;
-                            });
-                          }
+                          final managed = await _showGroupManager(selectedThemeId);
+                          if (managed == null) return;
+                          if (!_themeMap.containsKey(managed)) return;
+                          setModalState(() {
+                            selectedThemeId = managed;
+                          });
                         },
-                        icon: const Icon(Icons.add_circle_outline),
-                        label: const Text('새 테마 추가'),
+                        icon: const Icon(Icons.palette_outlined),
+                        label: const Text('그룹 관리'),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -1395,12 +1817,12 @@ class _TodoHomePageState extends State<TodoHomePage> {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 16),
           child: Row(
             children: [
               FloatingActionButton(
                 heroTag: 'roadmap-fab',
-                tooltip: '로드맵 생성하기',
+                tooltip: '로드맵 생성',
                 backgroundColor: const Color.fromARGB(255, 223, 138, 12),
                 foregroundColor: Colors.white,
                 onPressed: _isLoading ? null : _openRoadmapCenter,
@@ -1923,7 +2345,7 @@ class _TodoHomePageState extends State<TodoHomePage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '선호하는 테마를 선택하세요.',
+                      '선호하는 그룹을 선택하세요.',
                       style: textTheme.bodySmall?.copyWith(
                         color: scheme.onSurface.withValues(alpha: 0.6),
                       ),
@@ -2024,17 +2446,53 @@ class _TodoHomePageState extends State<TodoHomePage> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      '테마 관리',
+                      '그룹 관리',
                       style: textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '할 일 추가 시 사용할 테마는 폼에서 선택하거나 새로 만들 수 있습니다.',
+                      '할 일 추가 시 사용할 그룹은 폼에서 선택하거나 새로 만들 수 있습니다.',
                       style: textTheme.bodySmall?.copyWith(
                         color: scheme.onSurface.withValues(alpha: 0.6),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: _themes
+                          .map(
+                            (group) => Chip(
+                              backgroundColor: group.color.withValues(alpha: 0.15),
+                              label: Text(group.name),
+                              avatar: CircleAvatar(
+                                backgroundColor: group.color,
+                                foregroundColor: Colors.white,
+                                child: Text(
+                                  group.name.trim().isEmpty
+                                      ? 'G'
+                                      : group.name.trim().substring(0, 1).toUpperCase(),
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.tonalIcon(
+                      onPressed: () async {
+                        final selected = await _showGroupManager(_defaultThemeId);
+                        if (selected != null && _themeMap.containsKey(selected)) {
+                          setState(() {
+                            _defaultThemeId = selected;
+                          });
+                        }
+                        setModalState(() {});
+                      },
+                      icon: const Icon(Icons.palette_outlined),
+                      label: const Text('그룹 관리 열기'),
                     ),
                 ],
               ),
@@ -2199,6 +2657,25 @@ class _TodoTile extends StatelessWidget {
     if (start.isNotEmpty) return '$start ~';
     return '~ $end';
   }
+}
+
+class _PaletteEntry {
+  _PaletteEntry({
+    required this.onTap,
+    required this.selected,
+    required this.color,
+  }) : isPlus = false;
+
+  _PaletteEntry.plus({
+    required this.onTap,
+    required this.selected,
+    this.color,
+  }) : isPlus = true;
+
+  final Color? color;
+  final bool selected;
+  final bool isPlus;
+  final VoidCallback onTap;
 }
 
 class _EmptyState extends StatelessWidget {

@@ -87,5 +87,46 @@ class TodoThemeRepository {
     return theme;
   }
 
+  Future<TodoTheme> updateTheme({
+    required String id,
+    required String name,
+    required int colorValue,
+  }) async {
+    final updated = TodoTheme(id: id, name: name, colorValue: colorValue);
+
+    if (!TodoDatabase.isSupported) {
+      _fallbackThemes = List<TodoTheme>.from(_fallbackThemes).map((theme) {
+        return theme.id == id ? updated : theme;
+      }).toList();
+      return updated;
+    }
+
+    final db = await TodoDatabase.instance.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.update(
+      'todo_themes',
+      {
+        'name': name,
+        'color_value': colorValue,
+        'updated_at': now,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    return updated;
+  }
+
+  Future<void> deleteTheme(String id) async {
+    if (!TodoDatabase.isSupported) {
+      _fallbackThemes =
+          List<TodoTheme>.from(_fallbackThemes)..removeWhere((theme) => theme.id == id);
+      return;
+    }
+
+    final db = await TodoDatabase.instance.database;
+    await db.delete('todo_themes', where: 'id = ?', whereArgs: [id]);
+  }
+
   List<TodoTheme> get defaultThemes => List<TodoTheme>.from(_defaultThemes);
 }

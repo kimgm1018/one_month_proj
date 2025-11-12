@@ -84,3 +84,5 @@ pip-log.txt
 *.tmp
 *.bak
 *~
+.env*
+*.env
