@@ -1908,134 +1908,136 @@ class _TodoHomePageState extends State<TodoHomePage> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final scheme = Theme.of(context).colorScheme;
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-            Text(
-                    '설정',
-                    style: textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '설정',
+                      style: textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '선호하는 테마를 선택하세요.',
-                    style: textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurface.withValues(alpha: 0.6),
+                    const SizedBox(height: 8),
+                    Text(
+                      '선호하는 테마를 선택하세요.',
+                      style: textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurface.withValues(alpha: 0.6),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  SwitchListTile.adaptive(
-                    value: isDark,
-                    onChanged: (value) {
-                      setModalState(() => isDark = value);
-                      widget.onThemeChanged(value);
-                    },
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      '다크 모드',
+                    const SizedBox(height: 20),
+                    SwitchListTile.adaptive(
+                      value: isDark,
+                      onChanged: (value) {
+                        setModalState(() => isDark = value);
+                        widget.onThemeChanged(value);
+                      },
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        '다크 모드',
+                        style: textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        isDark ? '검은 배경 + 흰 글씨' : '흰 배경 + 검은 글씨',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Divider(color: scheme.onSurface.withValues(alpha: 0.1)),
+                    const SizedBox(height: 16),
+                    Text(
+                      '알림',
                       style: textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    subtitle: Text(
-                      isDark ? '검은 배경 + 흰 글씨' : '흰 배경 + 검은 글씨',
-                      style: textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurface.withValues(alpha: 0.6),
+                    const SizedBox(height: 12),
+                    SwitchListTile.adaptive(
+                      value: notificationsEnabled,
+                      onChanged: (value) {
+                        setModalState(() => notificationsEnabled = value);
+                        setState(() {
+                          _notificationsEnabled = value;
+                          _applyNotificationDefault(value);
+                        });
+                        if (value) {
+                          unawaited(_refreshAllNotifications());
+                        } else {
+                          unawaited(_cancelAllNotifications());
+                        }
+                      },
+                      title: const Text('알림 받기'),
+                      subtitle: Text(
+                        notificationsEnabled
+                            ? '설정한 리드 타임에 따라 시작/마감 알림이 울립니다.'
+                            : '알림이 전송되지 않습니다.',
                       ),
+                      contentPadding: EdgeInsets.zero,
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Divider(color: scheme.onSurface.withValues(alpha: 0.1)),
-                  const SizedBox(height: 16),
-                  Text(
-                    '알림',
-                    style: textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile.adaptive(
-                    value: notificationsEnabled,
-                    onChanged: (value) {
-                      setModalState(() => notificationsEnabled = value);
-                      setState(() {
-                        _notificationsEnabled = value;
-                        _applyNotificationDefault(value);
-                      });
-                      if (value) {
-                        unawaited(_refreshAllNotifications());
-                      } else {
-                        unawaited(_cancelAllNotifications());
-                      }
-                    },
-                    title: const Text('알림 받기'),
-                    subtitle: Text(
-                      notificationsEnabled
-                          ? '설정한 리드 타임에 따라 시작/마감 알림이 울립니다.'
-                          : '알림이 전송되지 않습니다.',
-                    ),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    enabled: notificationsEnabled,
-                    title: const Text('알림 리드 타임'),
-                    subtitle: Text(
-                      '알림을 얼마나 먼저 받을지 선택하세요.',
-                      style: textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '$leadMinutes분 전',
-                          style: textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      enabled: notificationsEnabled,
+                      title: const Text('알림 리드 타임'),
+                      subtitle: Text(
+                        '알림을 얼마나 먼저 받을지 선택하세요.',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.6),
                         ),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.chevron_right),
-                      ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '$leadMinutes분 전',
+                            style: textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.chevron_right),
+                        ],
+                      ),
+                      onTap: !notificationsEnabled
+                          ? null
+                          : () async {
+                              final selected = await _pickLeadTimeMinutes(
+                                context,
+                                leadMinutes,
+                              );
+                              if (selected != null &&
+                                  selected != _notificationLeadTime.inMinutes) {
+                                setModalState(() => leadMinutes = selected);
+                                setState(() {
+                                  _notificationLeadTime =
+                                      Duration(minutes: selected);
+                                });
+                                unawaited(_refreshAllNotifications());
+                              }
+                            },
                     ),
-                    onTap: !notificationsEnabled
-                        ? null
-                        : () async {
-                            final selected = await _pickLeadTimeMinutes(
-                              context,
-                              leadMinutes,
-                            );
-                            if (selected != null &&
-                                selected != _notificationLeadTime.inMinutes) {
-                              setModalState(() => leadMinutes = selected);
-                              setState(() {
-                                _notificationLeadTime =
-                                    Duration(minutes: selected);
-                              });
-                              unawaited(_refreshAllNotifications());
-                            }
-                          },
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '테마 관리',
-                    style: textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                    const SizedBox(height: 12),
+                    Text(
+                      '테마 관리',
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '할 일 추가 시 사용할 테마는 폼에서 선택하거나 새로 만들 수 있습니다.',
-                    style: textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurface.withValues(alpha: 0.6),
+                    const SizedBox(height: 8),
+                    Text(
+                      '할 일 추가 시 사용할 테마는 폼에서 선택하거나 새로 만들 수 있습니다.',
+                      style: textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurface.withValues(alpha: 0.6),
+                      ),
                     ),
-                  ),
                 ],
+              ),
               ),
             );
           },

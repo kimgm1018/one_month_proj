@@ -163,9 +163,12 @@ class NotificationService {
     );
   }
 
+  static const int _idModulus = 100000000;
+
   int _notificationId(String todoId, _ReminderType type) {
     final base = todoId.hashCode & 0x7fffffff;
-    return base * 10 + type.index;
+    final compact = base % _idModulus;
+    return compact * 10 + type.index;
   }
 
   String _buildPayload(String todoId, String? memo) {
