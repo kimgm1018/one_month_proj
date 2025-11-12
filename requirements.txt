@@ -1,0 +1,47 @@
+# LangGraph & LangChain
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+
+# OpenAI
+openai>=1.0.0
+
+# YouTube API
+google-api-python-client>=2.100.0
+
+# 환경 변수 관리
+python-dotenv>=1.0.0
+
+# 유틸리티
+typing-extensions>=4.8.0
+
+# Jupyter (이미 설치되어 있을 수 있음)
+jupyter>=1.0.0
+ipykernel>=6.25.0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
