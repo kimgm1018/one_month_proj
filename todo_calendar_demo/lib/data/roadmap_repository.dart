@@ -207,6 +207,85 @@ class RoadmapRepository {
     });
   }
 
+  Future<void> updateSession({
+    required String sessionId,
+    required RoadmapResult result,
+    DateTime? preferredStartDate,
+  }) async {
+    if (!TodoDatabase.isSupported) return;
+    final db = await TodoDatabase.instance.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final preferredMillis = preferredStartDate?.millisecondsSinceEpoch;
+
+    // 기존 tasks와 subtasks 삭제
+    final taskIds = await db.query(
+      'roadmap_tasks',
+      columns: ['id'],
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+    );
+    if (taskIds.isNotEmpty) {
+      final taskIdList = taskIds.map((row) => row['id'] as String).toList();
+      await db.delete(
+        'roadmap_subtasks',
+        where: 'task_id IN (${List.filled(taskIdList.length, '?').join(',')})',
+        whereArgs: taskIdList,
+      );
+      await db.delete('roadmap_tasks', where: 'session_id = ?', whereArgs: [sessionId]);
+    }
+
+    // 새로운 tasks와 subtasks 추가
+    final batch = db.batch();
+    final taskIdMap = <String, String>{};
+    for (var index = 0; index < result.timeline.length; index++) {
+      final entry = result.timeline[index];
+      final taskId = _uuid.v4();
+      taskIdMap[entry.id] = taskId;
+      batch.insert('roadmap_tasks', {
+        'id': taskId,
+        'session_id': sessionId,
+        'timeline_entry_id': entry.id,
+        'title': entry.title,
+        'start_date': entry.start.millisecondsSinceEpoch,
+        'end_date': entry.end.millisecondsSinceEpoch,
+        'duration_days': entry.durationDays,
+        'dependencies': jsonEncode(entry.dependencies),
+        'order_index': index,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      for (var subIndex = 0; subIndex < entry.subtasks.length; subIndex++) {
+        final sub = entry.subtasks[subIndex];
+        batch.insert('roadmap_subtasks', {
+          'id': _uuid.v4(),
+          'task_id': taskId,
+          'title': sub.title,
+          'summary': sub.summary,
+          'duration_days': sub.durationDays,
+          'order_index': subIndex,
+        });
+      }
+    }
+
+    // 세션 정보 업데이트
+    batch.update(
+      'roadmap_sessions',
+      {
+        'goal': result.goal,
+        'timeframe_unit': result.timeframeUnit,
+        'preferred_start_date': preferredMillis,
+        'summary': result.summary,
+        'roadmap_json': jsonEncode(result.toJson()),
+        'updated_at': now,
+      },
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+
+    await batch.commit(noResult: true);
+  }
+
   RoadmapSession _sessionFromRow(Map<String, Object?> row) {
     final preferredStart = row['preferred_start_date'] as int?;
     final roadmapJson = row['roadmap_json'] as String?;

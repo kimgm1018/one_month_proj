@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+
+import '../data/roadmap_repository.dart';
 
 class RoadmapSubtask {
   const RoadmapSubtask({
@@ -135,6 +138,26 @@ class RoadmapResult {
   }
 }
 
+enum RoadmapProgressStep {
+  analyzing,
+  generating,
+  scheduling,
+  summarizing,
+  completed,
+}
+
+class RoadmapProgress {
+  const RoadmapProgress({
+    required this.step,
+    required this.message,
+    this.result,
+  });
+
+  final RoadmapProgressStep step;
+  final String message;
+  final RoadmapResult? result;
+}
+
 class RoadmapService {
   static const _apiUrl = 'https://api.openai.com/v1/chat/completions';
 
@@ -162,61 +185,281 @@ class RoadmapService {
     required String request,
     required String apiKey,
     DateTime? preferredStartDate,
+    int maxRetries = 2,
   }) async {
-    final requirementsResponse = await _postChat(
+    return _generateRoadmapWithRetry(
+      request: request,
       apiKey: apiKey,
-      messages: [
-        {'role': 'system', 'content': _requirementsSystemPrompt},
-        {
-          'role': 'system',
-          'content': '오늘 날짜: ${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
-        },
-        {'role': 'user', 'content': request.trim()},
-      ],
+      preferredStartDate: preferredStartDate,
+      maxRetries: maxRetries,
+      previousErrors: [],
+    );
+  }
+
+  static Stream<RoadmapProgress> generateRoadmapStream({
+    required String request,
+    required String apiKey,
+    DateTime? preferredStartDate,
+    int maxRetries = 2,
+    List<RoadmapChatMessage>? previousMessages,
+    RoadmapResult? previousResult,
+  }) async* {
+    yield const RoadmapProgress(
+      step: RoadmapProgressStep.analyzing,
+      message: '로드맵 요구사항 분석 중...',
     );
 
-    final parsed = _loadJson(requirementsResponse);
-    final timeframeRaw = parsed['timeframe'] ?? {};
-    final timeframeUnit = (timeframeRaw['unit']?.toString().toLowerCase() ?? 'week');
-    final goal = parsed['goal']?.toString() ?? request.trim();
-    final startDate = _parseDate(parsed['start_date']?.toString(), DateTime.now());
-    final tasksRaw = parsed['tasks'];
-    if (tasksRaw is! List) {
-      throw StateError('tasks 항목이 배열이 아닙니다.');
+    RoadmapResult? result;
+    List<String> previousErrors = [];
+
+    for (int attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        yield const RoadmapProgress(
+          step: RoadmapProgressStep.analyzing,
+          message: '로드맵 요구사항 분석 중...',
+        );
+
+        // 이전 대화 히스토리와 기존 로드맵 결과를 컨텍스트로 포함
+        final messages = <Map<String, String>>[
+          {'role': 'system', 'content': _requirementsSystemPrompt},
+          {
+            'role': 'system',
+            'content': '오늘 날짜: ${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
+          },
+        ];
+
+        // 기존 로드맵 결과가 있으면 컨텍스트에 추가
+        if (previousResult != null) {
+          final timelineLines = _buildTimelineLines(previousResult.timeline);
+          messages.add({
+            'role': 'system',
+            'content': '''[기존 로드맵 정보]
+목표: ${previousResult.goal}
+기간 단위: ${previousResult.timeframeUnit}
+시작일: ${DateFormat('yyyy-MM-dd').format(previousResult.startDate)}
+작업 타임라인:
+$timelineLines
+
+위 로드맵을 기반으로 사용자의 수정 요청을 반영하여 새로운 로드맵을 생성해주세요.''',
+          });
+        }
+
+        // 이전 대화 히스토리 추가 (최근 10개 메시지)
+        if (previousMessages != null && previousMessages.isNotEmpty) {
+          final recentMessages = previousMessages.length > 10
+              ? previousMessages.sublist(previousMessages.length - 10)
+              : previousMessages;
+          for (final msg in recentMessages) {
+            if (msg.role == 'user' || msg.role == 'assistant') {
+              messages.add({
+                'role': msg.role,
+                'content': msg.message,
+              });
+            }
+          }
+        }
+
+        // 이전 에러가 있으면 컨텍스트에 포함
+        final userMessage = previousErrors.isEmpty
+            ? request.trim()
+            : '''$request
+
+[이전 시도에서 발생한 오류들]
+${previousErrors.map((e) => '- $e').join('\n')}
+
+위 오류들을 해결하여 올바른 JSON 형식으로 다시 생성해주세요.''';
+
+        messages.add({'role': 'user', 'content': userMessage});
+
+        yield const RoadmapProgress(
+          step: RoadmapProgressStep.generating,
+          message: '작업 목록 생성 중...',
+        );
+
+        final requirementsResponse = await _postChat(
+          apiKey: apiKey,
+          messages: messages,
+        );
+
+        yield const RoadmapProgress(
+          step: RoadmapProgressStep.scheduling,
+          message: '일정 스케줄링 중...',
+        );
+
+        final parsed = _loadJson(requirementsResponse);
+        final timeframeRaw = parsed['timeframe'] ?? {};
+        final timeframeUnit = (timeframeRaw['unit']?.toString().toLowerCase() ?? 'week');
+        final goal = parsed['goal']?.toString() ?? request.trim();
+        final startDate = _parseDate(parsed['start_date']?.toString(), DateTime.now());
+        final tasksRaw = parsed['tasks'];
+        if (tasksRaw is! List) {
+          throw StateError('tasks 항목이 배열이 아닙니다. tasks는 반드시 배열 형태여야 합니다.');
+        }
+
+        final tasks = _normaliseTasks(tasksRaw);
+        var timeline = _buildSchedule(tasks, startDate);
+
+        if (preferredStartDate != null && timeline.isNotEmpty) {
+          timeline = _alignTimeline(timeline, preferredStartDate);
+        }
+
+        final effectiveStartDate =
+            timeline.isNotEmpty ? timeline.first.start : (preferredStartDate ?? startDate);
+        final timelineLines = _buildTimelineLines(timeline);
+
+        yield const RoadmapProgress(
+          step: RoadmapProgressStep.summarizing,
+          message: '요약 생성 중...',
+        );
+
+        final summaryResponse = await _postChat(
+          apiKey: apiKey,
+          messages: [
+            {'role': 'system', 'content': _summarySystemPrompt},
+            {
+              'role': 'user',
+              'content': '최종 목표: $goal\n기간 단위: $timeframeUnit\n기준 날짜: '
+                  '${DateFormat('yyyy-MM-dd').format(effectiveStartDate)}\n작업 타임라인:\n$timelineLines',
+            },
+          ],
+        );
+
+        final summary = summaryResponse.trim();
+
+        result = RoadmapResult(
+          goal: goal,
+          timeframeUnit: timeframeUnit,
+          startDate: effectiveStartDate,
+          timeline: timeline,
+          summary: summary,
+        );
+
+        yield RoadmapProgress(
+          step: RoadmapProgressStep.completed,
+          message: '로드맵 생성 완료!',
+          result: result,
+        );
+
+        return; // 성공 시 종료
+      } catch (e) {
+        // 재시도 가능한 에러인지 확인
+        final errorMessage = e.toString();
+        final canRetry = attempt < maxRetries &&
+            (errorMessage.contains('JSON 파싱') ||
+                errorMessage.contains('tasks 항목이 배열이 아닙니다') ||
+                errorMessage.contains('순환이 있어') ||
+                errorMessage.contains('배열이 아닙니다'));
+
+        if (canRetry) {
+          previousErrors.add(errorMessage);
+          yield RoadmapProgress(
+            step: RoadmapProgressStep.analyzing,
+            message: '오류 발생. 재시도 중... (${attempt + 1}/$maxRetries)',
+          );
+          // 재시도 루프 계속
+        } else {
+          // 재시도 불가능한 에러 또는 재시도 횟수 초과
+          rethrow;
+        }
+      }
     }
+  }
 
-    final tasks = _normaliseTasks(tasksRaw);
-    var timeline = _buildSchedule(tasks, startDate);
+  static Future<RoadmapResult> _generateRoadmapWithRetry({
+    required String request,
+    required String apiKey,
+    DateTime? preferredStartDate,
+    required int maxRetries,
+    required List<String> previousErrors,
+  }) async {
+    try {
+      // 이전 에러가 있으면 컨텍스트에 포함
+      final userMessage = previousErrors.isEmpty
+          ? request.trim()
+          : '''$request
 
-    if (preferredStartDate != null && timeline.isNotEmpty) {
-      timeline = _alignTimeline(timeline, preferredStartDate);
+[이전 시도에서 발생한 오류들]
+${previousErrors.map((e) => '- $e').join('\n')}
+
+위 오류들을 해결하여 올바른 JSON 형식으로 다시 생성해주세요.''';
+
+      final requirementsResponse = await _postChat(
+        apiKey: apiKey,
+        messages: [
+          {'role': 'system', 'content': _requirementsSystemPrompt},
+          {
+            'role': 'system',
+            'content': '오늘 날짜: ${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
+          },
+          {'role': 'user', 'content': userMessage},
+        ],
+      );
+
+      final parsed = _loadJson(requirementsResponse);
+      final timeframeRaw = parsed['timeframe'] ?? {};
+      final timeframeUnit = (timeframeRaw['unit']?.toString().toLowerCase() ?? 'week');
+      final goal = parsed['goal']?.toString() ?? request.trim();
+      final startDate = _parseDate(parsed['start_date']?.toString(), DateTime.now());
+      final tasksRaw = parsed['tasks'];
+      if (tasksRaw is! List) {
+        throw StateError('tasks 항목이 배열이 아닙니다. tasks는 반드시 배열 형태여야 합니다.');
+      }
+
+      final tasks = _normaliseTasks(tasksRaw);
+      var timeline = _buildSchedule(tasks, startDate);
+
+      if (preferredStartDate != null && timeline.isNotEmpty) {
+        timeline = _alignTimeline(timeline, preferredStartDate);
+      }
+
+      final effectiveStartDate =
+          timeline.isNotEmpty ? timeline.first.start : (preferredStartDate ?? startDate);
+      final timelineLines = _buildTimelineLines(timeline);
+
+      final summaryResponse = await _postChat(
+        apiKey: apiKey,
+        messages: [
+          {'role': 'system', 'content': _summarySystemPrompt},
+          {
+            'role': 'user',
+            'content': '최종 목표: $goal\n기간 단위: $timeframeUnit\n기준 날짜: '
+                '${DateFormat('yyyy-MM-dd').format(effectiveStartDate)}\n작업 타임라인:\n$timelineLines',
+          },
+        ],
+      );
+
+      final summary = summaryResponse.trim();
+
+      return RoadmapResult(
+        goal: goal,
+        timeframeUnit: timeframeUnit,
+        startDate: effectiveStartDate,
+        timeline: timeline,
+        summary: summary,
+      );
+    } catch (e) {
+      // 재시도 가능한 에러인지 확인
+      final errorMessage = e.toString();
+      final canRetry = maxRetries > 0 &&
+          (errorMessage.contains('JSON 파싱') ||
+              errorMessage.contains('tasks 항목이 배열이 아닙니다') ||
+              errorMessage.contains('순환이 있어') ||
+              errorMessage.contains('배열이 아닙니다'));
+
+      if (canRetry) {
+        // 재시도
+        return _generateRoadmapWithRetry(
+          request: request,
+          apiKey: apiKey,
+          preferredStartDate: preferredStartDate,
+          maxRetries: maxRetries - 1,
+          previousErrors: [...previousErrors, errorMessage],
+        );
+      } else {
+        // 재시도 불가능한 에러 또는 재시도 횟수 초과
+        throw e;
+      }
     }
-
-    final effectiveStartDate =
-        timeline.isNotEmpty ? timeline.first.start : (preferredStartDate ?? startDate);
-    final timelineLines = _buildTimelineLines(timeline);
-
-    final summaryResponse = await _postChat(
-      apiKey: apiKey,
-      messages: [
-        {'role': 'system', 'content': _summarySystemPrompt},
-        {
-          'role': 'user',
-          'content': '최종 목표: $goal\n기간 단위: $timeframeUnit\n기준 날짜: '
-              '${DateFormat('yyyy-MM-dd').format(effectiveStartDate)}\n작업 타임라인:\n$timelineLines',
-        },
-      ],
-    );
-
-    final summary = summaryResponse.trim();
-
-    return RoadmapResult(
-      goal: goal,
-      timeframeUnit: timeframeUnit,
-      startDate: effectiveStartDate,
-      timeline: timeline,
-      summary: summary,
-    );
   }
 
   static Future<String> _postChat({

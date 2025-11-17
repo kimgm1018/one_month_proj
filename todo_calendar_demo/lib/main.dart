@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -1762,11 +1763,42 @@ class _TodoHomePageState extends State<TodoHomePage> {
           useDatabase: _useDatabase,
           defaultStartDate: _selectedDay,
           onSessionChanged: _handleRoadmapSessionUpdated,
-          onImport: (result, metadata) =>
-              _importRoadmapResult(result, metadata: metadata),
+          onImport: (result, metadata, {themeId}) =>
+              _importRoadmapResult(result, metadata: metadata, themeId: themeId),
+          themeMap: _themeMap,
+          defaultThemeId: _defaultThemeId,
         ),
       ),
     );
+  }
+
+  Future<void> _openRoadmapChatFromTodo(String sessionId) async {
+    RoadmapSession? session;
+    
+    if (_useDatabase) {
+      // 데이터베이스에서 세션 불러오기
+      session = await RoadmapRepository.instance.fetchSession(sessionId);
+    } else {
+      // 인메모리 저장소에서 세션 찾기
+      try {
+        session = _roadmapSessions.firstWhere(
+          (s) => s.id == sessionId,
+        );
+      } catch (e) {
+        session = null;
+      }
+    }
+
+    if (session == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('로드맵 세션을 찾을 수 없습니다.')),
+        );
+      }
+      return;
+    }
+
+    await _openRoadmapChat(session: session);
   }
 
   void _handleRoadmapSessionUpdated(
@@ -1886,6 +1918,9 @@ class _TodoHomePageState extends State<TodoHomePage> {
                                           onToggle: () => _toggleTodo(todo),
                                           onEdit: () => _editTodo(todo),
                                           onDelete: () => _confirmDelete(todo),
+                                          onOpenRoadmap: todo.sourceSessionId != null
+                                              ? () => _openRoadmapChatFromTodo(todo.sourceSessionId!)
+                                              : null,
                                         );
                                       },
                                     ),
@@ -2231,14 +2266,13 @@ class _TodoHomePageState extends State<TodoHomePage> {
   Future<void> _importRoadmapResult(
     RoadmapResult roadmap, {
     RoadmapSaveResult? metadata,
+    String? themeId,
   }) async {
     final sessionId = metadata?.sessionId;
     final taskIdMap = metadata?.taskIdMap ?? {
       for (final entry in roadmap.timeline) entry.id: _uuid.v4(),
     };
-    final projectThemeId = _themeMap.containsKey('work')
-        ? 'work'
-        : _defaultThemeId;
+    final projectThemeId = themeId ?? _defaultThemeId;
     final newTodos = <TodoItem>[];
 
     for (final entry in roadmap.timeline) {
@@ -2512,6 +2546,7 @@ class _TodoTile extends StatelessWidget {
     required this.onToggle,
     required this.onEdit,
     required this.onDelete,
+    this.onOpenRoadmap,
   });
 
   final TodoItem item;
@@ -2519,6 +2554,7 @@ class _TodoTile extends StatelessWidget {
   final VoidCallback onToggle;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onOpenRoadmap;
 
   @override
   Widget build(BuildContext context) {
@@ -2629,6 +2665,14 @@ class _TodoTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
+            if (onOpenRoadmap != null)
+              IconButton(
+                onPressed: onOpenRoadmap,
+                icon: const Icon(Icons.route_outlined),
+                tooltip: '로드맵에서 수정',
+                visualDensity: VisualDensity.compact,
+                color: scheme.primary,
+              ),
             IconButton(
               onPressed: onEdit,
               icon: const Icon(Icons.edit_outlined),
@@ -2814,6 +2858,8 @@ class RoadmapChatPage extends StatefulWidget {
     required this.onImport,
     required this.onSessionChanged,
     required this.defaultStartDate,
+    required this.themeMap,
+    required this.defaultThemeId,
     this.session,
     this.initialMessages = const [],
     super.key,
@@ -2822,10 +2868,12 @@ class RoadmapChatPage extends StatefulWidget {
   final bool useDatabase;
   final RoadmapSession? session;
   final List<RoadmapChatMessage> initialMessages;
-  final Future<void> Function(RoadmapResult, RoadmapSaveResult?) onImport;
+  final Future<void> Function(RoadmapResult, RoadmapSaveResult?, {String? themeId}) onImport;
   final void Function(RoadmapSession session, List<RoadmapChatMessage> messages)
       onSessionChanged;
   final DateTime defaultStartDate;
+  final Map<String, TodoTheme> themeMap;
+  final String defaultThemeId;
 
   @override
   State<RoadmapChatPage> createState() => _RoadmapChatPageState();
@@ -2844,8 +2892,11 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
   DateTime _preferredStartDate = DateTime.now();
   bool _isGenerating = false;
   String? _apiKey;
+  String? _progressMessage;
+  StreamSubscription<RoadmapProgress>? _progressSubscription;
 
-  bool get _isReadOnly => widget.session != null;
+  // 기존 세션에서도 수정 요청 가능
+  bool get _isReadOnly => false;
 
   @override
   void initState() {
@@ -2876,6 +2927,7 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
     _inputController.dispose();
     _scrollController.dispose();
     _apiKeyController.dispose();
+    _progressSubscription?.cancel();
     super.dispose();
   }
 
@@ -2914,14 +2966,12 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
               itemCount: _messages.length + (_isGenerating ? 1 : 0),
               itemBuilder: (context, index) {
                 if (_isGenerating && index == _messages.length) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                      child: _ProgressBubble(
+                        message: _progressMessage ?? '처리 중...',
                       ),
                     ),
                   );
@@ -2940,7 +2990,9 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
           if (_lastResult != null)
             _RoadmapResultSummary(
               result: _lastResult!,
-              onImport: () => widget.onImport(_lastResult!, _lastSaveResult),
+              onImport: (themeId) => widget.onImport(_lastResult!, _lastSaveResult, themeId: themeId),
+              themeMap: widget.themeMap,
+              defaultThemeId: widget.defaultThemeId,
             ),
           const Divider(height: 1),
           _buildInputArea(theme),
@@ -3032,40 +3084,129 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
     _inputController.clear();
 
     try {
-      final result = await RoadmapService.generateRoadmap(
+      RoadmapResult? result;
+      final completer = Completer<RoadmapResult>();
+      Exception? streamError;
+
+      // Stream으로 진행 상황 구독
+      _progressSubscription?.cancel();
+      
+      // 기존 세션이 있으면 이전 대화와 로드맵 결과를 전달
+      final previousMessages = _session != null ? _messages : null;
+      final previousResult = _lastResult;
+      
+      _progressSubscription = RoadmapService.generateRoadmapStream(
         request: text,
         apiKey: _apiKey!,
         preferredStartDate: _preferredStartDate,
+        previousMessages: previousMessages,
+        previousResult: previousResult,
+      ).listen(
+        (progress) {
+          if (!mounted) return;
+          setState(() {
+            _progressMessage = progress.message;
+            if (progress.result != null) {
+              result = progress.result;
+              if (!completer.isCompleted) {
+                completer.complete(progress.result);
+              }
+            }
+          });
+        },
+        onError: (error) {
+          streamError = error is Exception ? error : Exception(error.toString());
+          if (!completer.isCompleted) {
+            completer.completeError(streamError!);
+          }
+        },
+        onDone: () {
+          if (result == null && !completer.isCompleted) {
+            completer.completeError(
+              StateError('로드맵 생성 결과를 받지 못했습니다.'),
+            );
+          }
+        },
       );
 
-      if (widget.useDatabase) {
-        final saveResult = await RoadmapRepository.instance.saveGeneration(
-          userRequest: text,
-          result: result,
-          requestedAt: now,
-          preferredStartDate: _preferredStartDate,
-        );
-        final session =
-            await RoadmapRepository.instance.fetchSession(saveResult.sessionId);
-        final chatLogs =
-            await RoadmapRepository.instance.fetchChatLogs(saveResult.sessionId);
+      // Stream이 완료될 때까지 대기
+      result = await completer.future;
 
-        if (!mounted) return;
-        if (session != null) {
-          setState(() {
-            _session = session;
-            _messages = chatLogs;
-            _lastResult = session.result ?? result;
-            _lastSaveResult = saveResult;
-            _isGenerating = false;
-          });
-          widget.onSessionChanged(session, chatLogs);
+      if (widget.useDatabase) {
+        final isExistingSession = _session != null;
+        
+        if (isExistingSession) {
+          // 기존 세션 업데이트: 로드맵 결과 업데이트 및 새 메시지 추가
+          await RoadmapRepository.instance.updateSession(
+            sessionId: _session!.id,
+            result: result!,
+            preferredStartDate: _preferredStartDate,
+          );
+          
+          // 새 메시지들을 DB에 추가
+          await RoadmapRepository.instance.appendChatMessage(
+            sessionId: _session!.id,
+            role: 'user',
+            message: text,
+            createdAt: now,
+          );
+          
+          await RoadmapRepository.instance.appendChatMessage(
+            sessionId: _session!.id,
+            role: 'assistant',
+            message: result!.summary,
+            createdAt: DateTime.now(),
+          );
+          
+          // 업데이트된 세션과 채팅 로그 불러오기
+          final updatedSession =
+              await RoadmapRepository.instance.fetchSession(_session!.id);
+          final chatLogs =
+              await RoadmapRepository.instance.fetchChatLogs(_session!.id);
+
+          if (!mounted) return;
+          if (updatedSession != null) {
+            setState(() {
+              _session = updatedSession;
+              _messages = chatLogs; // 전체 채팅 로그 (기존 + 새 메시지)
+              _lastResult = updatedSession.result ?? result;
+              _isGenerating = false;
+              _progressMessage = null;
+            });
+            widget.onSessionChanged(updatedSession, chatLogs);
+          }
         } else {
-          setState(() {
-            _lastResult = result;
-            _lastSaveResult = saveResult;
-            _isGenerating = false;
-          });
+          // 새 세션 생성
+          final saveResult = await RoadmapRepository.instance.saveGeneration(
+            userRequest: text,
+            result: result!,
+            requestedAt: now,
+            preferredStartDate: _preferredStartDate,
+          );
+          final session =
+              await RoadmapRepository.instance.fetchSession(saveResult.sessionId);
+          final chatLogs =
+              await RoadmapRepository.instance.fetchChatLogs(saveResult.sessionId);
+
+          if (!mounted) return;
+          if (session != null) {
+            setState(() {
+              _session = session;
+              _messages = chatLogs;
+              _lastResult = session.result ?? result;
+              _lastSaveResult = saveResult;
+              _isGenerating = false;
+              _progressMessage = null;
+            });
+            widget.onSessionChanged(session, chatLogs);
+          } else {
+            setState(() {
+              _lastResult = result;
+              _lastSaveResult = saveResult;
+              _isGenerating = false;
+              _progressMessage = null;
+            });
+          }
         }
       } else {
         final sessionId = _session?.id ?? _uuid.v4();
@@ -3080,20 +3221,20 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
           id: _uuid.v4(),
           sessionId: sessionId,
           role: 'assistant',
-          message: result.summary,
+          message: result!.summary,
           createdAt: DateTime.now(),
         );
         final taskIdMap = <String, String>{
-          for (final entry in result.timeline) entry.id: _uuid.v4(),
+          for (final entry in result!.timeline) entry.id: _uuid.v4(),
         };
         final saveResult =
             RoadmapSaveResult(sessionId: sessionId, taskIdMap: taskIdMap);
         final newSession = RoadmapSession(
           id: sessionId,
           userRequest: text,
-          summary: result.summary,
+          summary: result!.summary,
           createdAt: now,
-          goal: result.goal,
+          goal: result!.goal,
           preferredStartDate: _preferredStartDate,
           result: result,
         );
@@ -3120,14 +3261,17 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
               id: _uuid.v4(),
               sessionId: _session?.id ?? '',
               role: 'assistant',
-              message: '로드맵 생성에 실패했습니다. 다시 시도해주세요.\n$e',
+              message: '로드맵 생성에 실패했습니다. 재시도 횟수를 초과했습니다.\n\n오류: $e',
               createdAt: DateTime.now(),
             ),
           );
       });
       _scrollToBottom();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('로드맵 생성에 실패했습니다: $e')),
+        SnackBar(
+          content: Text('로드맵 생성에 실패했습니다: $e'),
+          duration: const Duration(seconds: 5),
+        ),
       );
     }
   }
@@ -3194,6 +3338,46 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
   }
 }
 
+class _ProgressBubble extends StatelessWidget {
+  const _ProgressBubble({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            message,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ChatBubble extends StatelessWidget {
   const _ChatBubble({required this.message, required this.alignRight});
 
@@ -3232,10 +3416,41 @@ class _ChatBubble extends StatelessWidget {
                 ? CrossAxisAlignment.end
                 : CrossAxisAlignment.start,
             children: [
-              Text(
-                message.message,
-                style: theme.textTheme.bodyMedium?.copyWith(color: textColor),
-              ),
+              if (message.role == 'assistant')
+                MarkdownBody(
+                  data: message.message,
+                  styleSheet: MarkdownStyleSheet(
+                    p: theme.textTheme.bodyMedium?.copyWith(color: textColor),
+                    strong: theme.textTheme.bodyMedium?.copyWith(
+                      color: textColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    em: theme.textTheme.bodyMedium?.copyWith(
+                      color: textColor,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    code: theme.textTheme.bodySmall?.copyWith(
+                      color: textColor,
+                      fontFamily: 'monospace',
+                      backgroundColor: textColor.withValues(alpha: 0.1),
+                    ),
+                    codeblockDecoration: BoxDecoration(
+                      color: textColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    codeblockPadding: const EdgeInsets.all(8),
+                    listBullet: theme.textTheme.bodyMedium?.copyWith(color: textColor),
+                    h1: theme.textTheme.headlineSmall?.copyWith(color: textColor),
+                    h2: theme.textTheme.titleLarge?.copyWith(color: textColor),
+                    h3: theme.textTheme.titleMedium?.copyWith(color: textColor),
+                  ),
+                  selectable: true,
+                )
+              else
+                Text(
+                  message.message,
+                  style: theme.textTheme.bodyMedium?.copyWith(color: textColor),
+                ),
               const SizedBox(height: 6),
               Text(
                 DateFormat('HH:mm').format(message.createdAt),
@@ -3251,14 +3466,32 @@ class _ChatBubble extends StatelessWidget {
   }
 }
 
-class _RoadmapResultSummary extends StatelessWidget {
+class _RoadmapResultSummary extends StatefulWidget {
   const _RoadmapResultSummary({
     required this.result,
     required this.onImport,
+    required this.themeMap,
+    required this.defaultThemeId,
   });
 
   final RoadmapResult result;
-  final Future<void> Function() onImport;
+  final Future<void> Function(String themeId) onImport;
+  final Map<String, TodoTheme> themeMap;
+  final String defaultThemeId;
+
+  @override
+  State<_RoadmapResultSummary> createState() => _RoadmapResultSummaryState();
+}
+
+class _RoadmapResultSummaryState extends State<_RoadmapResultSummary> {
+  bool _isExpanded = true;
+  late String _selectedThemeId;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedThemeId = widget.defaultThemeId;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3267,7 +3500,6 @@ class _RoadmapResultSummary extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface.withValues(alpha: 0.6),
         border: Border(
@@ -3277,75 +3509,157 @@ class _RoadmapResultSummary extends StatelessWidget {
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            '로드맵 요약',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            result.summary,
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '단계별 일정',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          ...result.timeline.map(
-            (entry) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: theme.colorScheme.surface,
-                  border: Border.all(
-                    color: theme.colorScheme.outline.withValues(alpha: 0.2),
+          InkWell(
+            onTap: () {
+              setState(() {
+                _isExpanded = !_isExpanded;
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Text(
+                    '로드맵 요약',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                  const Spacer(),
+                  Icon(
+                    _isExpanded ? Icons.expand_more : Icons.expand_less,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _isExpanded
+                ? ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 300),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                     Text(
-                      '${entry.title} · ${dateFormat.format(entry.start)} ~ ${dateFormat.format(entry.end)}'
-                      ' (${entry.durationDays}일)',
-                      style: theme.textTheme.bodyMedium?.copyWith(
+                      widget.result.summary,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '단계별 일정',
+                      style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: entry.subtasks
-                          .map(
-                            (sub) => Chip(
-                              label: Text('${sub.title} (${sub.durationDays}일)'),
+                    const SizedBox(height: 8),
+                    ...widget.result.timeline.map(
+                      (entry) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: theme.colorScheme.surface,
+                            border: Border.all(
+                              color: theme.colorScheme.outline.withValues(alpha: 0.2),
                             ),
-                          )
-                          .toList(),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${entry.title} · ${dateFormat.format(entry.start)} ~ ${dateFormat.format(entry.end)}'
+                                ' (${entry.durationDays}일)',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: entry.subtasks
+                                    .map(
+                                      (sub) => Chip(
+                                        label: Text('${sub.title} (${sub.durationDays}일)'),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _selectedThemeId,
+                            decoration: InputDecoration(
+                              labelText: '그룹 선택',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                            ),
+                            items: widget.themeMap.entries.map((entry) {
+                              final theme = entry.value;
+                              return DropdownMenuItem<String>(
+                                value: entry.key,
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 16,
+                                      height: 16,
+                                      decoration: BoxDecoration(
+                                        color: Color(theme.colorValue),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(theme.name),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  _selectedThemeId = value;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton.tonal(
+                          onPressed: () {
+                            widget.onImport(_selectedThemeId);
+                          },
+                          child: const Text('할 일에 추가'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.tonal(
-              onPressed: () {
-                onImport();
-              },
-              child: const Text('할 일에 추가'),
-            ),
+            )
+                : const SizedBox.shrink(),
           ),
         ],
       ),
