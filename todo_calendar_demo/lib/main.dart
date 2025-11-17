@@ -651,8 +651,8 @@ class _TodoHomePageState extends State<TodoHomePage> {
                             ? 2.0
                             : (selected ? 2.0 : 1.2);
                         return SizedBox(
-                          width: 44,
-                          height: 44,
+                          width: 42,
+                          height: 42,
                           child: GestureDetector(
                             onTap: () {
                               HapticFeedback.selectionClick();
@@ -701,7 +701,7 @@ class _TodoHomePageState extends State<TodoHomePage> {
                               color: entries[i].color,
                               isPlus: entries[i].isPlus,
                             ),
-                            if (i != entries.length - 1) const SizedBox(width: 12),
+                            if (i != entries.length - 1) const SizedBox(width: 10),
                           ]
                         ];
                       }
@@ -1818,6 +1818,13 @@ class _TodoHomePageState extends State<TodoHomePage> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
+    final mediaPadding = MediaQuery.of(context).padding;
+    const fabHorizontalPadding = 35.0;
+    const compactSpacing = 8.0;
+    const defaultSpacing = 12.0;
+    final fabBottomPadding =
+        mediaPadding.bottom + (mediaPadding.bottom > 0 ? compactSpacing : defaultSpacing);
+    final fabLocation = _AdaptiveCenterFloatFabLocation(fabBottomPadding);
 
     return Scaffold(
       appBar: AppBar(
@@ -1846,29 +1853,33 @@ class _TodoHomePageState extends State<TodoHomePage> {
           ),
         ],
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 16),
-          child: Row(
-            children: [
-              FloatingActionButton(
-                heroTag: 'roadmap-fab',
-                tooltip: '로드맵 생성',
-                backgroundColor: const Color.fromARGB(255, 223, 138, 12),
-                foregroundColor: Colors.white,
-                onPressed: _isLoading ? null : _openRoadmapCenter,
-                child: const Icon(Icons.add),
-              ),
-              const Spacer(),
-              FloatingActionButton(
-                heroTag: 'todo-fab',
-                tooltip: '할 일 추가',
-                onPressed: _isLoading ? null : _createTodo,
-                child: const Icon(Icons.add),
-              ),
-            ],
-          ),
+      floatingActionButtonLocation: fabLocation,
+      floatingActionButtonAnimator: const _NoOpFabAnimator(),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          fabHorizontalPadding,
+          0,
+          fabHorizontalPadding,
+          0,
+        ),
+        child: Row(
+          children: [
+            FloatingActionButton(
+              heroTag: 'roadmap-fab',
+              tooltip: '로드맵 생성',
+              backgroundColor: const Color.fromARGB(255, 223, 138, 12),
+              foregroundColor: Colors.white,
+              onPressed: _isLoading ? null : _openRoadmapCenter,
+              child: const Icon(Icons.add),
+            ),
+            const Spacer(),
+            FloatingActionButton(
+              heroTag: 'todo-fab',
+              tooltip: '할 일 추가',
+              onPressed: _isLoading ? null : _createTodo,
+              child: const Icon(Icons.add),
+            ),
+          ],
         ),
       ),
       body: _isLoading
@@ -2744,6 +2755,49 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+class _AdaptiveCenterFloatFabLocation extends FloatingActionButtonLocation {
+  const _AdaptiveCenterFloatFabLocation(this.bottomPadding);
+
+  final double bottomPadding;
+
+  @override
+  Offset getOffset(ScaffoldPrelayoutGeometry geometry) {
+    final double fabX =
+        (geometry.scaffoldSize.width - geometry.floatingActionButtonSize.width) / 2;
+    final double fabY = geometry.scaffoldSize.height -
+        geometry.floatingActionButtonSize.height -
+        bottomPadding;
+    return Offset(fabX, fabY);
+  }
+
+  @override
+  String get debugDescription => 'adaptiveCenterFloat';
+}
+
+class _NoOpFabAnimator extends FloatingActionButtonAnimator {
+  const _NoOpFabAnimator();
+
+  @override
+  Offset getOffset({
+    required Offset begin,
+    required Offset end,
+    required double progress,
+  }) =>
+      end;
+
+  @override
+  Animation<double> getScaleAnimation({
+    required Animation<double> parent,
+  }) =>
+      const AlwaysStoppedAnimation<double>(1.0);
+
+  @override
+  Animation<double> getRotationAnimation({
+    required Animation<double> parent,
+  }) =>
+      const AlwaysStoppedAnimation<double>(0.0);
 }
 
 class _RoadmapSessionListSheet extends StatelessWidget {
