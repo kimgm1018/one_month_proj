@@ -38,10 +38,17 @@ class TodoCalendarApp extends StatefulWidget {
 
 class _TodoCalendarAppState extends State<TodoCalendarApp> {
   ThemeMode _themeMode = ThemeMode.light;
+  bool _showSplash = true;
 
   void _handleThemeChanged(bool isDarkMode) {
     setState(() {
       _themeMode = isDarkMode ? ThemeMode.dark : ThemeMode.light;
+    });
+  }
+
+  void _handleSplashComplete() {
+    setState(() {
+      _showSplash = false;
     });
   }
 
@@ -149,9 +156,55 @@ class _TodoCalendarAppState extends State<TodoCalendarApp> {
         Locale('ko'),
         Locale('ko', 'KR'),
       ],
-      home: TodoHomePage(
-        isDarkMode: _themeMode == ThemeMode.dark,
-        onThemeChanged: _handleThemeChanged,
+      home: _showSplash
+          ? SplashScreen(
+              onAnimationComplete: _handleSplashComplete,
+            )
+          : TodoHomePage(
+              isDarkMode: _themeMode == ThemeMode.dark,
+              onThemeChanged: _handleThemeChanged,
+            ),
+    );
+  }
+}
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({
+    super.key,
+    required this.onAnimationComplete,
+  });
+
+  final VoidCallback onAnimationComplete;
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // 1.5초 후 메인 화면으로 전환
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        widget.onAnimationComplete();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: Text(
+          'Ordoo',
+          style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                fontSize: 48,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+        ),
       ),
     );
   }
