@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyDihd-0iFEyPBFDfqRcMb832WRHlKOuxLA</string>
+	<key>GCM_SENDER_ID</key>
+	<string>520663563736</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.example.todoCalendarDemo</string>
+	<key>PROJECT_ID</key>
+	<string>ordoo-ded2e</string>
+	<key>STORAGE_BUCKET</key>
+	<string>ordoo-ded2e.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:520663563736:ios:f6767c28e3129061f586ad</string>
+	<!-- REVERSED_CLIENT_ID는 Google Cloud Console의 OAuth 클라이언트 ID에서 확인 후 추가하세요 -->
+	<!-- 클라이언트 ID 예: 123456789-abc.apps.googleusercontent.com -->
+	<!-- REVERSED_CLIENT_ID 예: com.googleusercontent.apps.123456789-abc -->
+	<!-- <key>REVERSED_CLIENT_ID</key> -->
+	<!-- <string>YOUR_REVERSED_CLIENT_ID_HERE</string> -->
+</dict>
+</plist>

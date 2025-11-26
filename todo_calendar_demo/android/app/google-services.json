@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "520663563736",
+    "project_id": "ordoo-ded2e",
+    "storage_bucket": "ordoo-ded2e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:520663563736:android:e6e5790f7a3ff303f586ad",
+        "android_client_info": {
+          "package_name": "com.example.todo_calendar_demo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCAc2djv70LV8TMJbl3TnxswfAbZA7Twe0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

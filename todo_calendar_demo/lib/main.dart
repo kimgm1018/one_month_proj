@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
+import 'package:kakao_flutter_sdk/kakao_flutter_sdk.dart' as kakao;
 import 'package:table_calendar/table_calendar.dart';
 import 'package:uuid/uuid.dart';
 
@@ -18,11 +20,32 @@ import 'data/todo_repository.dart';
 import 'data/todo_theme_repository.dart';
 import 'models/todo_item.dart';
 import 'models/todo_theme.dart';
+import 'screens/login_screen.dart';
+import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 import 'services/roadmap_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Firebase 초기화
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    // 이미 초기화된 경우 무시
+    if (e.toString().contains('already been initialized')) {
+      // 이미 초기화됨
+    } else {
+      rethrow;
+    }
+  }
+  
+  // 카카오 SDK 초기화
+  // TODO: 카카오 개발자 센터에서 받은 네이티브 앱 키로 변경하세요
+  kakao.KakaoSdk.init(
+    nativeAppKey: 'caf071dcba072d4953e60518458fa707', // 여기에 네이티브 앱 키 입력
+  );
+  
   await initializeDateFormatting('ko_KR');
   await TodoDatabase.instance.init();
   await NotificationService.instance.initialize();
@@ -160,9 +183,34 @@ class _TodoCalendarAppState extends State<TodoCalendarApp> {
           ? SplashScreen(
               onAnimationComplete: _handleSplashComplete,
             )
-          : TodoHomePage(
-              isDarkMode: _themeMode == ThemeMode.dark,
-              onThemeChanged: _handleThemeChanged,
+          : StreamBuilder(
+              stream: AuthService.instance.authStateChanges,
+              builder: (context, snapshot) {
+                // 에러 발생 시
+                if (snapshot.hasError) {
+                  print('인증 상태 스트림 오류: ${snapshot.error}');
+                  // 에러가 있어도 로그인 화면 표시
+                  return const LoginScreen();
+                }
+                
+                // 로딩 중
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                
+                // 로그인되지 않은 경우
+                if (snapshot.data == null) {
+                  return const LoginScreen();
+                }
+                
+                // 로그인된 경우
+                return TodoHomePage(
+                  isDarkMode: _themeMode == ThemeMode.dark,
+                  onThemeChanged: _handleThemeChanged,
+                );
+              },
             ),
     );
   }
