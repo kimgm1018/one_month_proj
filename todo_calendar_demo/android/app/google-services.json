@@ -12,7 +12,16 @@
           "package_name": "com.example.todo_calendar_demo"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "520663563736-bucqd307bj9s04j2f03b5jp3b7u7ij58.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.todo_calendar_demo",
+            "certificate_hash": "aa493099d5f7811e40cadcf7225faa6d1f505729"
+          }
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCAc2djv70LV8TMJbl3TnxswfAbZA7Twe0"
@@ -20,7 +29,15 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "520663563736-igo620767s4ovl2e9is1ue4vbcad82ps.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.todoCalendarDemo"
+              }
+            }
+          ]
         }
       }
     }

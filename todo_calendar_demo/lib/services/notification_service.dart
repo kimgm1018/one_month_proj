@@ -194,7 +194,8 @@ extension on NotificationService {
     if (_timezoneInitialised) return;
     tz.initializeTimeZones();
     try {
-      final String timeZoneName = await FlutterTimezone.getLocalTimezone();
+      final timezoneInfo = await FlutterTimezone.getLocalTimezone();
+      final String timeZoneName = timezoneInfo.identifier;
       tz.setLocalLocation(tz.getLocation(timeZoneName));
     } catch (_) {
       tz.setLocalLocation(tz.getLocation('Asia/Seoul'));

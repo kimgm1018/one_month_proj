@@ -52,9 +52,9 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<!-- Google Sign In을 위한 URL Scheme은 GoogleService-Info.plist에서 자동으로 추가됩니다 -->
+				<!-- Google Sign In을 위한 URL Scheme -->
+				<string>com.googleusercontent.apps.520663563736-igo620767s4ovl2e9is1ue4vbcad82ps</string>
 				<!-- 카카오톡 로그인을 위한 URL Scheme -->
-				<!-- TODO: 카카오 개발자 센터에서 받은 네이티브 앱 키로 변경하세요 -->
 				<string>kakaocaf071dcba072d4953e60518458fa707</string>
 			</array>
 		</dict>

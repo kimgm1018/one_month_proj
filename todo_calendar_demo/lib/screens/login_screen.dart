@@ -31,7 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
       UserCredential? result;
       try {
         result = await AuthService.instance.signInWithGoogle().timeout(
-          const Duration(seconds: 30),
+          const Duration(seconds: 120), // 타임아웃 시간 증가
           onTimeout: () {
             throw TimeoutException('로그인 시간이 초과되었습니다.');
           },
@@ -188,12 +188,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight - 64,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                 // 앱 로고/제목
                 Text(
                   'Ordoo',
@@ -288,9 +294,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     color: theme.colorScheme.onSurface.withOpacity(0.5),
                   ),
                 ),
-              ],
-            ),
-          ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );

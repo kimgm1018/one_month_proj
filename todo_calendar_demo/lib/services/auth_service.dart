@@ -13,9 +13,10 @@ class AuthService {
   static final AuthService instance = AuthService._();
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  // iOS에서 Google Sign In 설정 확인을 위해 서버 클라이언트 ID가 필요할 수 있음
+  // Google Sign In 설정
+  // Android: google-services.json의 oauth_client 자동 사용
+  // iOS: REVERSED_CLIENT_ID가 Info.plist에 설정되어 있어야 함
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    // iOS에서 필요할 수 있는 설정
     scopes: ['email', 'profile'],
   );
 
@@ -53,7 +54,7 @@ class AuthService {
         
         // 직접 호출 (microtask로 감싸면 오히려 문제가 될 수 있음)
         googleUser = await _googleSignIn.signIn().timeout(
-          const Duration(seconds: 60),
+          const Duration(seconds: 120), // 타임아웃 시간 증가
           onTimeout: () {
             print('Google Sign In 타임아웃');
             throw TimeoutException('Google 로그인 시간이 초과되었습니다.');

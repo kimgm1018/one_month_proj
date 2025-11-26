@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_core_platform_interface/firebase_core_platform_interface.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -30,7 +32,22 @@ Future<void> main() async {
   
   // Firebase 초기화
   try {
-    await Firebase.initializeApp();
+    if (kIsWeb) {
+      // 웹 플랫폼에서는 FirebaseOptions를 명시적으로 제공해야 함
+      await Firebase.initializeApp(
+        options: const FirebaseOptions(
+          apiKey: 'AIzaSyDihd-0iFEyPBFDfqRcMb832WRHlKOuxLA',
+          appId: '1:520663563736:web:f6767c28e3129061f586ad',
+          messagingSenderId: '520663563736',
+          projectId: 'ordoo-ded2e',
+          authDomain: 'ordoo-ded2e.firebaseapp.com',
+          storageBucket: 'ordoo-ded2e.firebasestorage.app',
+        ),
+      );
+    } else {
+      // 모바일 플랫폼(iOS/Android)에서는 자동으로 설정 파일을 읽음
+      await Firebase.initializeApp();
+    }
   } catch (e) {
     // 이미 초기화된 경우 무시
     if (e.toString().contains('already been initialized')) {

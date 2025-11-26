@@ -26,10 +26,7 @@
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
 	<string>1:520663563736:ios:f6767c28e3129061f586ad</string>
-	<!-- REVERSED_CLIENT_ID는 Google Cloud Console의 OAuth 클라이언트 ID에서 확인 후 추가하세요 -->
-	<!-- 클라이언트 ID 예: 123456789-abc.apps.googleusercontent.com -->
-	<!-- REVERSED_CLIENT_ID 예: com.googleusercontent.apps.123456789-abc -->
-	<!-- <key>REVERSED_CLIENT_ID</key> -->
-	<!-- <string>YOUR_REVERSED_CLIENT_ID_HERE</string> -->
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.520663563736-igo620767s4ovl2e9is1ue4vbcad82ps</string>
 </dict>
 </plist>
