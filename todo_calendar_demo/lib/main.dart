@@ -26,6 +26,7 @@ import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 import 'services/roadmap_service.dart';
+import 'services/secure_storage_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,9 +35,15 @@ Future<void> main() async {
   try {
     if (kIsWeb) {
       // 웹 플랫폼에서는 FirebaseOptions를 명시적으로 제공해야 함
+      // ⚠️ 보안 주의: 웹용 API 키는 클라이언트에 노출되므로 Google Cloud Console에서 제한을 설정해야 합니다
+      // 1. Google Cloud Console > APIs 및 서비스 > 사용자 인증 정보
+      // 2. 해당 API 키 선택 > 편집
+      // 3. 애플리케이션 제한사항: HTTP 리퍼러(웹사이트) 제한 설정
+      // 4. API 제한사항: Firebase 관련 API만 허용
+      // 자세한 내용은 GOOGLE_API_SECURITY_FIX.md 참고
       await Firebase.initializeApp(
         options: const FirebaseOptions(
-          apiKey: 'AIzaSyDihd-0iFEyPBFDfqRcMb832WRHlKOuxLA',
+          apiKey: 'AIzaSyDihd-0iFEyPBFDfqRcMb832WRHlKOuxLA', // Google Cloud Console에서 제한 설정 필수
           appId: '1:520663563736:web:f6767c28e3129061f586ad',
           messagingSenderId: '520663563736',
           projectId: 'ordoo-ded2e',
@@ -3091,7 +3098,23 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
         _lastSaveResult = RoadmapSaveResult(sessionId: _session!.id, taskIdMap: const {});
       }
     }
+    // 저장된 API 키 불러오기 또는 기본값 사용
+    _loadApiKey();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  /// 저장된 API 키 불러오기 또는 기본값 사용
+  Future<void> _loadApiKey() async {
+    final savedKey = await SecureStorageService.instance.getOpenAIApiKey();
+    if (mounted) {
+      setState(() {
+        // 저장된 키가 있으면 사용, 없으면 기본값 사용
+        _apiKey = savedKey ?? 
+            (SecureStorageService.defaultOpenAIApiKey.isNotEmpty 
+                ? SecureStorageService.defaultOpenAIApiKey 
+                : null);
+      });
+    }
   }
 
   @override
@@ -3488,9 +3511,14 @@ class _RoadmapChatPageState extends State<RoadmapChatPage> {
     );
 
     if (confirmed == true && mounted) {
-      setState(() {
-        _apiKey = _apiKeyController.text.trim();
-      });
+      final newApiKey = _apiKeyController.text.trim();
+      if (newApiKey.isNotEmpty) {
+        // API 키를 안전하게 저장
+        await SecureStorageService.instance.saveOpenAIApiKey(newApiKey);
+        setState(() {
+          _apiKey = newApiKey;
+        });
+      }
     }
   }
 

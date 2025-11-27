@@ -7,6 +7,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:kakao_flutter_sdk/kakao_flutter_sdk.dart' as kakao;
+import 'secure_storage_service.dart';
 
 class AuthService {
   AuthService._();
@@ -300,13 +301,14 @@ class AuthService {
     String? kakaoEmail,
     String? kakaoNickname,
   }) async {
-    // Firebase Functions URL
-    const functionUrl = 'https://us-central1-ordoo-ded2e.cloudfunctions.net/createKakaoCustomToken';
+    // Firebase Functions URL (저장된 값 또는 기본값 사용)
+    final savedUrl = await SecureStorageService.instance.getFirebaseFunctionUrl();
+    final functionUrl = savedUrl ?? SecureStorageService.defaultFirebaseFunctionUrl;
     
-    if (functionUrl == 'YOUR_FIREBASE_FUNCTIONS_URL_HERE') {
+    if (functionUrl.isEmpty || functionUrl == 'YOUR_FIREBASE_FUNCTIONS_URL_HERE') {
       throw Exception(
         'Firebase Functions URL이 설정되지 않았습니다.\n'
-        'Firebase Functions를 설정하고 URL을 auth_service.dart에 추가하세요.'
+        'Firebase Functions를 설정하고 URL을 저장하세요.'
       );
     }
 

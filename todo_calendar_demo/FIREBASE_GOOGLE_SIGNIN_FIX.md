@@ -75,3 +75,4 @@ flutter run -d emulator-5554
 - 하지만 Firebase Auth가 작동하려면 Web 클라이언트 ID도 필요합니다
 - Web 클라이언트 ID는 Firebase Console의 Authentication 설정에서 입력해야 합니다
 
+
